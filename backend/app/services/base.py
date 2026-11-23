@@ -11,6 +11,7 @@ import os
 import hashlib
 import time
 import importlib
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -140,6 +141,31 @@ class BaseModuleService:
                     except json.JSONDecodeError:
                         continue
         return records
+
+    def _replace_jsonl(self, filepath: Path, records: list[dict[str, Any]]) -> int:
+        """原子重写JSONL文件：先写同目录临时文件再 rename，避免读到半截数据。
+
+        溯源重算会覆盖某个来源集合的产物，用整文件替换保证并发检索看到的
+        要么是旧文件、要么是新文件，不会读到只写了一半的记录。
+        """
+        _ensure_dir(filepath.parent)
+        tmp = filepath.with_name(f".{filepath.name}.{uuid.uuid4().hex[:8]}.tmp")
+        written = 0
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                for rec in records:
+                    f.write(json.dumps(rec, ensure_ascii=False, default=str) + "\n")
+                    written += 1
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, filepath)
+        finally:
+            if tmp.exists():
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass
+        return written
 
     def _write_checkpoint(self, name: str, state: dict[str, Any]) -> Path:
         """写入检查点文件，用于中断恢复与游标推进。检查点记录当前处理偏移和状态。"""

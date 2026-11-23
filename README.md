@@ -62,12 +62,45 @@ npm run dev
 | 敏感词过滤 | `sensitive_filter` | 过滤规则 | 规则编号、匹配模式、命中词条 |
 | 向量嵌入 | `vector_embed` | 向量化任务 | 任务编号、分块编号、嵌入模型 |
 | 知识图谱 | `kg_build` | 图谱三元组 | 三元组编号、头实体、谓词关系 |
+| 图谱溯证 | `kg_provenance` | 关系证据 | 证据编号、文档编号、来源分块、抽取版本 |
 | 抽取质量 | `extract_quality` | 质检报告 | 报告编号、批次编号、抽样比例 |
 | 人工复核 | `annot_review` | 复核任务 | 复核编号、分块编号、复核对象 |
 | 文档版本 | `doc_version` | 版本快照 | 快照编号、文档编号、版本号 |
 | 抽取血缘 | `extract_lineage` | 血缘链路 | 链路编号、源文件、解析节点 |
 | 结果交付 | `result_deliver` | 交付任务 | 交付编号、快照编号、交付格式 |
 | 失败重采 | `parse_retry` | 重采任务 | 重采编号、失败环节、原始批次 |
+
+## 图谱溯证检索
+
+知识图谱按实体检索时，同一个实体文本可能来自不同文档、不同图谱版本或不同抽取批次，
+而图谱边本身不记录这些区别。`kg_provenance` 把「图谱边 / 关系来源 / 分块 / 抽取版本」
+汇总成一条条独立证据，检索结果稳定、可回查、可重算：
+
+- **同名实体不合并**：每条证据都带 `doc_id`，不同文档的同名实体分别是独立证据。
+- **检索范围可选**：`published` 只查已入图的边（当前边的来历）；`pending` 只查
+  尚未进入已发布图的新关系来源（需要补抽/重算的证据）；`all` 两者都查。
+- **一次查询锁定来源集合**：检索返回 `snapshot_id` 与 `source_ids`，翻页时带上
+  `snapshot_id` 即可。排序、分页、甚至并发新来源到达并重建索引，都不会把这次查询
+  换成另一组证据；快照条件不一致会返回 409。
+- **边/分块/抽取版本同时回查**：证据条目的 `provenance` 同时给出 `edge`（三元组与
+  图谱版本）、`chunk`（来源分块）、`extraction`（关系编号、模型版本与全部历史版本）。
+- **重算只动选中的来源**：把检索到的证据明细交给关系抽取，重算结果写在
+  `relations/{集合}_relations_recompute_{批次}.jsonl`，原始产物原样保留为历史版本；
+  未选中的文档与同一文档里未选中的实体对都不会被写入。
+
+接口：
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/kg/provenance/search` | 实体检索，支持 scope/doc_id/relation/match/page/size/sort/snapshot_id |
+| GET | `/api/kg/provenance/snapshots/{id}` | 回查某次检索固定的来源集合 |
+| GET | `/api/kg/provenance/evidence/{id}` | 单条证据的边、分块、抽取版本明细 |
+| GET | `/api/kg/provenance/stats` | 索引统计（重建后可用） |
+| POST | `/api/kg/provenance/recompute` | 传入 `snapshot_id + evidence_ids`（或证据明细）重算选定来源 |
+| GET | `/api/kg/{三元组id}/provenance` | 从已登记三元组回到它的溯证证据 |
+
+前端入口：`/kg_provenance`（左侧导航「图谱溯证检索」）。服务启动时会写入一组演示产物
+（`DOC-DEMO-A/B` 已入图、`DOC-DEMO-C` 未入图），可直接检索 `某科技集团` 体验。
 
 ## 约定
 

@@ -5,6 +5,8 @@
 """
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -12,7 +14,17 @@ from app.config import settings
 from app.routers import ROUTERS
 from app.store import store
 
-app = FastAPI(title="文档解析与知识抽取平台", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """启动时补齐图谱溯证演示产物；已存在则跳过，不覆盖真实数据。"""
+    from app.demo_provenance import seed_demo_provenance
+
+    seed_demo_provenance()
+    yield
+
+
+app = FastAPI(title="文档解析与知识抽取平台", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
